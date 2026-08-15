@@ -1,0 +1,482 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  // Pooled connection (Supabase's pgbouncer port 6543 in production) — used at runtime.
+  url       = env("DATABASE_URL")
+  // Direct, non-pooled connection (Supabase port 5432) — used only for migrations.
+  // Locally these can point at the same local Postgres instance.
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Users & Teams
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  HEAD_COACH
+  ASSISTANT_COACH
+  SET_PIECE_COACH
+  PLAYER
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  role      UserRole @default(HEAD_COACH)
+  teamId    String?
+  team      Team?    @relation(fields: [teamId], references: [id])
+  playerId  String?  @unique
+  player    Player?  @relation(fields: [playerId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  season    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  players            Player[]
+  lineups            Lineup[]
+  tacticalRoles      TacticalRole[]
+  setPieceCategories SetPieceCategory[]
+  matches            Match[]
+  tags               Tag[]
+  users              User[]
+}
+
+// ---------------------------------------------------------------------------
+// Players & Positions
+// ---------------------------------------------------------------------------
+
+enum DominantFoot {
+  LEFT
+  RIGHT
+  BOTH
+}
+
+enum PlayerAvailability {
+  AVAILABLE
+  INJURED
+  SUSPENDED
+  NOT_SELECTED
+}
+
+model Player {
+  id                String                     @id @default(cuid())
+  teamId            String
+  team              Team                       @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  name              String
+  shirtNumber       Int
+  photoUrl          String?
+  isGoalkeeper      Boolean                    @default(false)
+  primaryPositionId String?
+  primaryPosition   Position?                  @relation("PrimaryPosition", fields: [primaryPositionId], references: [id])
+  secondaryPositions PlayerSecondaryPosition[]
+  dominantFoot      DominantFoot               @default(RIGHT)
+  heightCm          Int?
+  duelStrength      Int?
+  headingStrength   Int?
+  notes             String?
+  availability      PlayerAvailability         @default(AVAILABLE)
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+
+  lineupAssignments LineupAssignment[]
+  matchSquads       MatchSquad[]
+  overrides         SetPieceOverride[]
+  user              User?
+
+  @@index([teamId])
+}
+
+model Position {
+  id             String   @id @default(cuid())
+  code           String   @unique
+  name           String
+  sortOrder      Int      @default(0)
+
+  primaryPlayers    Player[]                   @relation("PrimaryPosition")
+  secondaryFor      PlayerSecondaryPosition[]
+  lineupAssignments LineupAssignment[]
+  tacticalRoles     TacticalRole[]
+  setPieceRoles     SetPieceRole[]             @relation("AssignedPosition")
+}
+
+model PlayerSecondaryPosition {
+  id         String   @id @default(cuid())
+  playerId   String
+  player     Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  positionId String
+  position   Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, positionId])
+}
+
+// ---------------------------------------------------------------------------
+// Tactical roles (positional or special) & lineups
+// ---------------------------------------------------------------------------
+
+enum TacticalRoleType {
+  POSITIONAL
+  SPECIAL
+}
+
+model TacticalRole {
+  id         String           @id @default(cuid())
+  teamId     String?
+  team       Team?            @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  name       String
+  type       TacticalRoleType @default(SPECIAL)
+  positionId String?
+  position   Position?        @relation(fields: [positionId], references: [id])
+  color      String?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  setPieceRoles SetPieceRole[]
+
+  @@index([teamId])
+}
+
+model Lineup {
+  id        String   @id @default(cuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  name      String
+  formation String   @default("4-3-3")
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments LineupAssignment[]
+  matches     Match[]
+
+  @@index([teamId])
+}
+
+model LineupAssignment {
+  id         String    @id @default(cuid())
+  lineupId   String
+  lineup     Lineup    @relation(fields: [lineupId], references: [id], onDelete: Cascade)
+  positionId String
+  position   Position  @relation(fields: [positionId], references: [id])
+  playerId   String?
+  player     Player?   @relation(fields: [playerId], references: [id])
+
+  @@unique([lineupId, positionId])
+}
+
+// ---------------------------------------------------------------------------
+// Set piece library
+// ---------------------------------------------------------------------------
+
+enum SetPieceType {
+  OFFENSIVE
+  DEFENSIVE
+  CUSTOM
+}
+
+model SetPieceCategory {
+  id       String             @id @default(cuid())
+  teamId   String
+  team     Team               @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  name     String
+  type     SetPieceType       @default(CUSTOM)
+  parentId String?
+  parent   SetPieceCategory?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children SetPieceCategory[] @relation("CategoryTree")
+
+  setPieces SetPiece[]
+
+  @@index([teamId])
+}
+
+model SetPiece {
+  id         String           @id @default(cuid())
+  categoryId String
+  category   SetPieceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name       String
+  type       SetPieceType     @default(OFFENSIVE)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  variants SetPieceVariant[]
+
+  @@index([categoryId])
+}
+
+model SetPieceVariant {
+  id              String   @id @default(cuid())
+  setPieceId      String
+  setPiece        SetPiece @relation(fields: [setPieceId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?
+  tacticalPurpose String?
+  priority        Int?
+  signal          String?
+  notes           String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  roles          SetPieceRole[]
+  stages         SetPieceStage[]
+  zones          SetPieceZone[]
+  tags           SetPieceTag[]
+  matchSetPieces MatchSetPiece[]
+  versions       SetPieceVariantVersion[]
+
+  @@index([setPieceId])
+}
+
+model SetPieceRole {
+  id                 String       @id @default(cuid())
+  variantId          String
+  variant            SetPieceVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  tacticalRoleId     String
+  tacticalRole       TacticalRole @relation(fields: [tacticalRoleId], references: [id])
+  assignedPositionId String?
+  assignedPosition   Position?    @relation("AssignedPosition", fields: [assignedPositionId], references: [id])
+  label              String?
+  colorOverride      String?
+  sortOrder          Int          @default(0)
+
+  instruction   SetPieceInstruction?
+  positions     SetPiecePosition[]
+  movements     SetPieceMovement[]   @relation("MovementRole")
+  overrides     SetPieceOverride[]
+
+  @@index([variantId])
+}
+
+model SetPieceInstruction {
+  id             String       @id @default(cuid())
+  setPieceRoleId String       @unique
+  setPieceRole   SetPieceRole @relation(fields: [setPieceRoleId], references: [id], onDelete: Cascade)
+  primary        String?
+  secondary      String?
+  onLossOfBall   String?
+  timing         String?
+  priority       Int?
+  updatedAt      DateTime     @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Stages / animation (Phase 2)
+// ---------------------------------------------------------------------------
+
+model SetPieceStage {
+  id                 String   @id @default(cuid())
+  variantId          String
+  variant            SetPieceVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  order              Int
+  name               String
+  triggerDescription String?
+  durationMs         Int?
+
+  positions SetPiecePosition[]
+  movements SetPieceMovement[]
+
+  @@index([variantId])
+  @@unique([variantId, order])
+}
+
+enum PositionEntityType {
+  OWN_ROLE
+  OPPONENT
+  BALL
+  CONE
+}
+
+model SetPiecePosition {
+  id               String              @id @default(cuid())
+  stageId          String
+  stage            SetPieceStage       @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  entityType       PositionEntityType
+  setPieceRoleId   String?
+  setPieceRole     SetPieceRole?       @relation(fields: [setPieceRoleId], references: [id], onDelete: Cascade)
+  opponentMarkerId String?
+  opponentMarker   OpponentPlayer?     @relation(fields: [opponentMarkerId], references: [id], onDelete: Cascade)
+  x                Float
+  y                Float
+
+  @@index([stageId])
+}
+
+enum ArrowType {
+  RUN
+  PASS
+  BLOCK
+  ALT_RUN
+}
+
+model SetPieceMovement {
+  id             String        @id @default(cuid())
+  stageId        String
+  stage          SetPieceStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  setPieceRoleId String?
+  setPieceRole   SetPieceRole? @relation("MovementRole", fields: [setPieceRoleId], references: [id], onDelete: Cascade)
+  type           ArrowType     @default(RUN)
+  fromX          Float
+  fromY          Float
+  toX            Float
+  toY            Float
+  pathPoints     Json?
+  label          String?
+
+  @@index([stageId])
+}
+
+model SetPieceZone {
+  id        String          @id @default(cuid())
+  variantId String
+  variant   SetPieceVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  name      String
+  color     String          @default("#38bdf8")
+  points    Json
+
+  @@index([variantId])
+}
+
+model SetPieceVariantVersion {
+  id            String          @id @default(cuid())
+  variantId     String
+  variant       SetPieceVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  versionNumber Int
+  snapshot      Json
+  note          String?
+  createdAt     DateTime        @default(now())
+
+  @@index([variantId])
+  @@unique([variantId, versionNumber])
+}
+
+// ---------------------------------------------------------------------------
+// Matches (Phase 3)
+// ---------------------------------------------------------------------------
+
+model Match {
+  id           String   @id @default(cuid())
+  teamId       String
+  team         Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  opponentName String
+  date         DateTime
+  location     String?
+  formation    String?
+  lineupId     String?
+  lineup       Lineup?  @relation(fields: [lineupId], references: [id])
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  squad        MatchSquad[]
+  setPieces    MatchSetPiece[]
+  opponentInfo Opponent?
+  overrides    SetPieceOverride[]
+
+  @@index([teamId])
+}
+
+model MatchSquad {
+  id       String             @id @default(cuid())
+  matchId  String
+  match    Match              @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  playerId String
+  player   Player             @relation(fields: [playerId], references: [id])
+  status   PlayerAvailability @default(AVAILABLE)
+
+  @@unique([matchId, playerId])
+}
+
+model MatchSetPiece {
+  id        String          @id @default(cuid())
+  matchId   String
+  match     Match           @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  variantId String
+  variant   SetPieceVariant @relation(fields: [variantId], references: [id])
+  role      String          @default("PRIMARY")
+  sortOrder Int             @default(0)
+
+  @@index([matchId])
+}
+
+model Opponent {
+  id        String           @id @default(cuid())
+  matchId   String           @unique
+  match     Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  name      String
+  notes     String?
+  formation String?
+  players   OpponentPlayer[]
+}
+
+model OpponentPlayer {
+  id         String             @id @default(cuid())
+  opponentId String
+  opponent   Opponent           @relation(fields: [opponentId], references: [id], onDelete: Cascade)
+  label      String
+  notes      String?
+  positions  SetPiecePosition[]
+}
+
+// ---------------------------------------------------------------------------
+// Overrides (Phase 3)
+// ---------------------------------------------------------------------------
+
+enum OverrideScope {
+  MATCH
+  PLAYER
+  LINEUP
+}
+
+model SetPieceOverride {
+  id             String       @id @default(cuid())
+  setPieceRoleId String
+  setPieceRole   SetPieceRole @relation(fields: [setPieceRoleId], references: [id], onDelete: Cascade)
+  scope          OverrideScope
+  matchId        String?
+  match          Match?       @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  playerId       String?
+  player         Player?      @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  primary        String?
+  secondary      String?
+  onLossOfBall   String?
+  timing         String?
+  priority       Int?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([setPieceRoleId])
+}
+
+// ---------------------------------------------------------------------------
+// Tags
+// ---------------------------------------------------------------------------
+
+model Tag {
+  id       String        @id @default(cuid())
+  teamId   String
+  team     Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  name     String
+  variants SetPieceTag[]
+
+  @@unique([teamId, name])
+}
+
+model SetPieceTag {
+  id        String          @id @default(cuid())
+  variantId String
+  variant   SetPieceVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  tagId     String
+  tag       Tag             @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([variantId, tagId])
+}

@@ -1,0 +1,22 @@
+{
+  "name": "fotbollsdoktorn",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace=@fotbollsdoktorn/api",
+    "dev:web": "npm run dev --workspace=@fotbollsdoktorn/web",
+    "build": "npm run build --workspace=@fotbollsdoktorn/shared && npm run build --workspace=@fotbollsdoktorn/api && npm run build --workspace=@fotbollsdoktorn/web",
+    "vercel-build": "npm run prisma:generate && npm run build --workspace=@fotbollsdoktorn/web",
+    "prisma:generate": "npm run prisma:generate --workspace=@fotbollsdoktorn/api",
+    "prisma:migrate": "npm run prisma:migrate --workspace=@fotbollsdoktorn/api",
+    "prisma:deploy": "npm run prisma:deploy --workspace=@fotbollsdoktorn/api",
+    "seed": "npm run seed --workspace=@fotbollsdoktorn/api"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
