@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { usePositions, useDeleteRole, useUpdateInstruction, useUpdateRole } from "../../api/hooks";
-import type { SetPieceRole } from "../../api/types";
+import { useDeleteRole, useUpdateInstruction, useUpdateRole } from "../../api/hooks";
+import type { LineupAssignment, SetPieceRole } from "../../api/types";
 
 interface RoleInspectorProps {
   role: SetPieceRole | undefined;
+  /** Players in the lineup currently shown on the pitch; only these can be picked for a role. */
+  lineupAssignments: LineupAssignment[];
+  /** Positions already used by other roles in this variant. */
+  usedPositionIds: string[];
   variantId: string;
   onDeleted: () => void;
   onPrev: () => void;
@@ -20,8 +24,16 @@ const FIELDS: { key: keyof Form; label: string; rows: number; placeholder: strin
   { key: "timing", label: "Timing", rows: 1, placeholder: "t.ex. Starta när hörnläggaren tar sitt näst sista steg" },
 ];
 
-export function RoleInspector({ role, variantId, onDeleted, onPrev, onNext, onSaved }: RoleInspectorProps) {
-  const { data: positions } = usePositions();
+export function RoleInspector({
+  role,
+  lineupAssignments,
+  usedPositionIds,
+  variantId,
+  onDeleted,
+  onPrev,
+  onNext,
+  onSaved,
+}: RoleInspectorProps) {
   const updateInstruction = useUpdateInstruction(variantId);
   const updateRole = useUpdateRole(variantId);
   const deleteRole = useDeleteRole(variantId);
@@ -103,9 +115,10 @@ export function RoleInspector({ role, variantId, onDeleted, onPrev, onNext, onSa
     timer.current = window.setTimeout(flush, 700);
   }
 
-  const playerLine = role.resolvedPlayer
-    ? `#${role.resolvedPlayer.shirtNumber} ${role.resolvedPlayer.name}`
-    : "Ingen spelare tilldelad (via laguppställning)";
+  const candidates = [...lineupAssignments]
+    .filter((a) => a.player)
+    .sort((a, b) => a.position.sortOrder - b.position.sortOrder);
+  const assignedInLineup = candidates.some((a) => a.positionId === role.assignedPositionId);
 
   return (
     <div className="flex w-80 flex-shrink-0 flex-col overflow-hidden border-l border-surface-border bg-surface-raised">
@@ -115,8 +128,34 @@ export function RoleInspector({ role, variantId, onDeleted, onPrev, onNext, onSa
             {role.tacticalRole.type === "POSITIONAL" ? "Positionell roll" : "Egen roll"}
           </div>
           <div className="text-lg font-semibold text-white">{role.label ?? role.tacticalRole.name}</div>
-          <div className="text-sm text-slate-400">{playerLine}</div>
         </div>
+
+        <label className="block rounded-lg border border-accent/40 bg-accent/5 p-3">
+          <div className="mb-1 text-xs font-medium uppercase tracking-wide text-accent">Vem spelar rollen?</div>
+          <select
+            className="input"
+            value={assignedInLineup ? (role.assignedPositionId ?? "") : ""}
+            onChange={(e) => {
+              onSaved();
+              updateRole.mutate({ id: role.id, data: { assignedPositionId: e.target.value || null } });
+            }}
+          >
+            <option value="">– Ingen vald –</option>
+            {candidates.map((a) => {
+              const taken = usedPositionIds.includes(a.positionId) && a.positionId !== role.assignedPositionId;
+              return (
+                <option key={a.positionId} value={a.positionId} disabled={taken}>
+                  #{a.player!.shirtNumber} {a.player!.name} ({a.position.code}){taken ? " – redan placerad" : ""}
+                </option>
+              );
+            })}
+          </select>
+          <div className="mt-1 text-xs text-slate-500">
+            {role.assignedPositionId && !assignedInLineup
+              ? "Den valda positionen saknar spelare i den här laguppställningen."
+              : "Spelarna kommer från vald laguppställning."}
+          </div>
+        </label>
 
         {FIELDS.map((f) => (
           <label key={f.key} className="block">
@@ -147,26 +186,6 @@ export function RoleInspector({ role, variantId, onDeleted, onPrev, onNext, onSa
                 onBlur={() => label !== (role.label ?? "") && updateRole.mutate({ id: role.id, data: { label: label || null } })}
               />
             </label>
-            {role.tacticalRole.type === "SPECIAL" && (
-              <label className="block">
-                <div className="mb-1 text-xs text-slate-500">Position i laguppställningen som fyller rollen</div>
-                <select
-                  className="input"
-                  value={role.assignedPositionId ?? ""}
-                  onChange={(e) => {
-                    onSaved();
-                    updateRole.mutate({ id: role.id, data: { assignedPositionId: e.target.value || null } });
-                  }}
-                >
-                  <option value="">- Ingen -</option>
-                  {positions?.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.code})
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
             <button
               className="w-full rounded-md border border-red-500/30 py-1.5 text-sm text-red-400 hover:bg-red-500/10"
               onClick={() => {

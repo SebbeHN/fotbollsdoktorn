@@ -355,14 +355,16 @@ export function SetPieceEditor() {
 
   function handleAddRole(tacticalRoleId: string) {
     flashSaved();
+    // Start inside the visible part of the pitch, so the new player is never off-screen.
+    const spot = effectiveView === "attack" ? { x: 0.8, y: 0.5 } : effectiveView === "defend" ? { x: 0.2, y: 0.5 } : { x: 0.5, y: 0.5 };
     createRole.mutate(
-      { tacticalRoleId, x: 0.5, y: 0.5 },
+      { tacticalRoleId, ...spot },
       {
         onSuccess: (created: any) => {
           select("role", created.id);
           record({
             undo: () => deleteRole.mutate(created.id),
-            redo: () => createRole.mutate({ tacticalRoleId, x: 0.5, y: 0.5 }),
+            redo: () => createRole.mutate({ tacticalRoleId, ...spot }),
           });
         },
       }
@@ -689,6 +691,8 @@ export function SetPieceEditor() {
         ) : (
           <RoleInspector
             role={selectedRole}
+            lineupAssignments={lineups?.find((l) => l.id === lineupId)?.assignments ?? []}
+            usedPositionIds={variant.roles.map((r) => r.assignedPositionId).filter((x): x is string => Boolean(x))}
             variantId={variant.id}
             onDeleted={() => setSelectedRoleId(null)}
             onPrev={() => selectRelativeRole(-1)}
