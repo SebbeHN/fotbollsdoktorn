@@ -280,6 +280,7 @@ model SetPieceStage {
   order              Int
   name               String
   triggerDescription String?
+  note               String?
   durationMs         Int?
 
   positions SetPiecePosition[]
@@ -305,6 +306,7 @@ model SetPiecePosition {
   setPieceRole     SetPieceRole?       @relation(fields: [setPieceRoleId], references: [id], onDelete: Cascade)
   opponentMarkerId String?
   opponentMarker   OpponentPlayer?     @relation(fields: [opponentMarkerId], references: [id], onDelete: Cascade)
+  label            String?
   x                Float
   y                Float
 

@@ -10,7 +10,8 @@ import { Roles } from "./pages/Roles";
 import { SetPieceLibrary } from "./pages/library/SetPieceLibrary";
 import { SetPieceEditor } from "./pages/editor/SetPieceEditor";
 import { Matches } from "./pages/Matches";
-import { Presentation } from "./pages/Presentation";
+import { PresentSetup } from "./pages/present/PresentSetup";
+import { PresentDeck } from "./pages/present/PresentDeck";
 
 /** Single-team MVP bootstrap: picks the first team and its default lineup so
  * every page has a teamId/lineupId to work with without a login flow. */
@@ -40,6 +41,7 @@ export default function App() {
 
   return (
     <Routes>
+      <Route path="/genomgang/spela" element={<PresentDeck />} />
       <Route element={<AppShell />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/matcher" element={<Matches />} />
@@ -48,7 +50,8 @@ export default function App() {
         <Route path="/trupp" element={<Squad />} />
         <Route path="/laguppstallningar" element={<Lineups />} />
         <Route path="/roller" element={<Roles />} />
-        <Route path="/presentation" element={<Presentation />} />
+        <Route path="/genomgang" element={<PresentSetup />} />
+        <Route path="/presentation" element={<Navigate to="/genomgang" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

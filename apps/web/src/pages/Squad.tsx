@@ -3,6 +3,7 @@ import { useAppStore } from "../state/appStore";
 import { useDeletePlayer, usePlayers, usePositions } from "../api/hooks";
 import type { Player } from "../api/types";
 import { PlayerDrawer } from "../components/players/PlayerDrawer";
+import { ImportSquadDialog } from "../components/players/ImportSquadDialog";
 
 const AVAILABILITY_LABEL: Record<Player["availability"], string> = {
   AVAILABLE: "Tillgänglig",
@@ -10,6 +11,8 @@ const AVAILABILITY_LABEL: Record<Player["availability"], string> = {
   SUSPENDED: "Avstängd",
   NOT_SELECTED: "Ej uttagen",
 };
+
+const FOOT_LABEL: Record<Player["dominantFoot"], string> = { LEFT: "Vänster", RIGHT: "Höger", BOTH: "Båda" };
 
 const AVAILABILITY_COLOR: Record<Player["availability"], string> = {
   AVAILABLE: "bg-emerald-500/15 text-emerald-400",
@@ -24,6 +27,7 @@ export function Squad() {
   const { data: positions } = usePositions();
   const deletePlayer = useDeletePlayer(teamId ?? undefined);
   const [editingPlayer, setEditingPlayer] = useState<Player | "new" | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const positionByCode = Object.fromEntries((positions ?? []).map((p) => [p.id, p]));
 
@@ -34,12 +38,20 @@ export function Squad() {
           <h1 className="text-2xl font-semibold text-white">Trupp</h1>
           <p className="mt-1 text-sm text-slate-400">{players?.length ?? 0} spelare i truppen.</p>
         </div>
-        <button
-          onClick={() => setEditingPlayer("new")}
-          className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-slate-950 hover:bg-accent/90"
-        >
-          + Ny spelare
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setImporting(true)}
+            className="rounded-md border border-surface-border px-4 py-2 text-sm font-medium text-slate-200 hover:border-accent hover:text-accent"
+          >
+            ⬆ Importera trupp
+          </button>
+          <button
+            onClick={() => setEditingPlayer("new")}
+            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-slate-950 hover:bg-accent/90"
+          >
+            + Ny spelare
+          </button>
+        </div>
       </div>
 
       <div className="mt-6 overflow-hidden rounded-lg border border-surface-border">
@@ -72,7 +84,7 @@ export function Squad() {
                 <td className="px-4 py-3 text-slate-300">
                   {p.primaryPositionId ? positionByCode[p.primaryPositionId]?.code : "-"}
                 </td>
-                <td className="px-4 py-3 text-slate-300">{p.dominantFoot}</td>
+                <td className="px-4 py-3 text-slate-300">{FOOT_LABEL[p.dominantFoot]}</td>
                 <td className="px-4 py-3 text-slate-300">{p.heightCm ? `${p.heightCm} cm` : "-"}</td>
                 <td className="px-4 py-3 text-slate-300">{p.duelStrength ?? "-"}</td>
                 <td className="px-4 py-3 text-slate-300">{p.headingStrength ?? "-"}</td>
@@ -97,6 +109,8 @@ export function Squad() {
           </tbody>
         </table>
       </div>
+
+      {importing && <ImportSquadDialog onClose={() => setImporting(false)} />}
 
       {editingPlayer && (
         <PlayerDrawer

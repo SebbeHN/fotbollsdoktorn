@@ -119,6 +119,7 @@ export interface SetPiecePosition {
   entityType: "OWN_ROLE" | "OPPONENT" | "BALL" | "CONE";
   setPieceRoleId: string | null;
   opponentMarkerId: string | null;
+  label: string | null;
   x: number;
   y: number;
 }
@@ -143,6 +144,7 @@ export interface SetPieceStage {
   order: number;
   name: string;
   triggerDescription: string | null;
+  note: string | null;
   durationMs: number | null;
   positions: SetPiecePosition[];
   movements: SetPieceMovement[];

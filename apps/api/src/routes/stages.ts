@@ -13,6 +13,7 @@ export const movementsRouter = Router();
 const stageSchema = z.object({
   name: z.string().min(1).max(120),
   triggerDescription: z.string().max(500).nullable().optional(),
+  note: z.string().max(1000).nullable().optional(),
   durationMs: z.number().int().positive().nullable().optional(),
 });
 
@@ -44,6 +45,7 @@ variantStagesRouter.post<{ variantId: string }>("/", async (req, res) => {
       order: (lastStage?.order ?? 0) + 1,
       name: parsed.data.name,
       triggerDescription: parsed.data.triggerDescription,
+      note: parsed.data.note,
       durationMs: parsed.data.durationMs,
       positions: lastStage
         ? {
@@ -51,6 +53,7 @@ variantStagesRouter.post<{ variantId: string }>("/", async (req, res) => {
               entityType: p.entityType,
               setPieceRoleId: p.setPieceRoleId,
               opponentMarkerId: p.opponentMarkerId,
+              label: p.label,
               x: p.x,
               y: p.y,
             })),
@@ -137,6 +140,40 @@ stagesRouter.delete("/:stageId/positions/ball", async (req, res) => {
   await prisma.setPiecePosition.deleteMany({
     where: { stageId: req.params.stageId, entityType: "BALL", setPieceRoleId: null },
   });
+  res.status(204).end();
+});
+
+// ---------------------------------------------------------------------------
+// Opponent markers (red "M" on the slides): free-standing, one row per stage.
+// ---------------------------------------------------------------------------
+
+const opponentSchema = z.object({
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  label: z.string().max(8).nullable().optional(),
+});
+
+stagesRouter.post("/:stageId/positions/opponent", async (req, res) => {
+  const parsed = opponentSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const position = await prisma.setPiecePosition.create({
+    data: { stageId: req.params.stageId, entityType: "OPPONENT", ...parsed.data },
+  });
+  res.status(201).json(position);
+});
+
+export const stagePositionsRouter = Router();
+
+stagePositionsRouter.patch("/:id", async (req, res) => {
+  const parsed = opponentSchema.partial().safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const existing = await prisma.setPiecePosition.findUnique({ where: { id: req.params.id } });
+  if (!existing || existing.entityType !== "OPPONENT") return res.status(404).json({ error: "Opponent not found" });
+  res.json(await prisma.setPiecePosition.update({ where: { id: req.params.id }, data: parsed.data }));
+});
+
+stagePositionsRouter.delete("/:id", async (req, res) => {
+  await prisma.setPiecePosition.deleteMany({ where: { id: req.params.id, entityType: "OPPONENT" } });
   res.status(204).end();
 });
 

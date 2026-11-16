@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "./client";
 import type {
   ArrowType,
@@ -8,6 +8,7 @@ import type {
   Position,
   SetPieceCategory,
   SetPieceMovement,
+  SetPiecePosition,
   SetPieceStage,
   SetPieceSummary,
   SetPieceVariant,
@@ -58,6 +59,34 @@ export function useUpdatePlayer(teamId: string | undefined) {
     mutationFn: ({ id, data }: { id: string; data: Partial<Player> }) =>
       apiPatch<Player>(`/players/${id}`, data),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["players", teamId] });
+      qc.invalidateQueries({ queryKey: ["lineups", teamId] });
+    },
+  });
+}
+
+export interface ImportRowOutcome {
+  index: number;
+  action: "create" | "update" | "error";
+  name: string;
+  shirtNumber: number | null;
+  messages: string[];
+}
+
+export interface ImportResult {
+  dryRun: boolean;
+  summary: { created: number; updated: number; errors: number; removed: number; removedNames: string[] };
+  rows: ImportRowOutcome[];
+  notRemoved?: string[];
+}
+
+export function useImportPlayers(teamId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { players: unknown[]; dryRun: boolean; removeMissing: boolean }) =>
+      apiPost<ImportResult>(`/teams/${teamId}/players/import`, data),
+    onSuccess: (result) => {
+      if (result.dryRun) return;
       qc.invalidateQueries({ queryKey: ["players", teamId] });
       qc.invalidateQueries({ queryKey: ["lineups", teamId] });
     },
@@ -233,6 +262,16 @@ export function useVariant(variantId: string | undefined, lineupId: string | und
   });
 }
 
+export function useVariants(variantIds: string[], lineupId: string | undefined) {
+  return useQueries({
+    queries: variantIds.map((id) => ({
+      queryKey: ["variant", id, lineupId],
+      queryFn: () =>
+        apiGet<SetPieceVariant>(`/variants/${id}${lineupId ? `?lineupId=${lineupId}` : ""}`),
+    })),
+  });
+}
+
 export function useUpdateVariant(variantId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
@@ -283,7 +322,7 @@ export function useSuggestSpecialRoles(variantId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (lineupId: string | undefined) =>
-      apiPost<{ updated: number; lineupId: string }>(`/variants/${variantId}/roles/suggest`, { lineupId }),
+      apiPost<{ updated: number; lineupId: string; message?: string }>(`/variants/${variantId}/roles/suggest`, { lineupId }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["variant", variantId] }),
   });
 }
@@ -354,7 +393,12 @@ export function useUpdateStage(variantId: string | undefined) {
       data,
     }: {
       id: string;
-      data: { name?: string; triggerDescription?: string | null; durationMs?: number | null };
+      data: {
+        name?: string;
+        triggerDescription?: string | null;
+        note?: string | null;
+        durationMs?: number | null;
+      };
     }) => apiPatch<SetPieceStage>(`/stages/${id}`, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["variant", variantId] }),
   });
@@ -391,6 +435,32 @@ export function useUpsertStageBallPosition(variantId: string | undefined) {
   return useMutation({
     mutationFn: ({ stageId, x, y }: { stageId: string; x: number; y: number }) =>
       apiPut(`/stages/${stageId}/positions/ball`, { x, y }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["variant", variantId] }),
+  });
+}
+
+export function useCreateOpponent(variantId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ stageId, x, y, label }: { stageId: string; x: number; y: number; label?: string | null }) =>
+      apiPost<SetPiecePosition>(`/stages/${stageId}/positions/opponent`, { x, y, label }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["variant", variantId] }),
+  });
+}
+
+export function useUpdateOpponent(variantId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { x?: number; y?: number; label?: string | null } }) =>
+      apiPatch<SetPiecePosition>(`/stage-positions/${id}`, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["variant", variantId] }),
+  });
+}
+
+export function useDeleteOpponent(variantId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiDelete(`/stage-positions/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["variant", variantId] }),
   });
 }

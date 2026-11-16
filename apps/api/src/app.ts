@@ -13,7 +13,7 @@ import {
   setPieceRolesRouter,
   variantRolesRouter,
 } from "./routes/setPieceVariants";
-import { variantStagesRouter, stagesRouter, movementsRouter } from "./routes/stages";
+import { variantStagesRouter, stagesRouter, movementsRouter, stagePositionsRouter } from "./routes/stages";
 import { variantZonesRouter, zonesRouter } from "./routes/zones";
 
 export const app = express();
@@ -45,6 +45,7 @@ app.use("/api/variants/:variantId/zones", variantZonesRouter);
 app.use("/api/variants", setPieceVariantsRouter);
 app.use("/api/roles", setPieceRolesRouter);
 app.use("/api/stages", stagesRouter);
+app.use("/api/stage-positions", stagePositionsRouter);
 app.use("/api/movements", movementsRouter);
 app.use("/api/zones", zonesRouter);
 

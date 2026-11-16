@@ -33,7 +33,7 @@ setPieceVariantsForSetPieceRouter.post<{ setPieceId: string }>("/", async (req, 
     data: {
       ...parsed.data,
       setPieceId: req.params.setPieceId,
-      stages: { create: [{ order: 1, name: "Stage 1" }] },
+      stages: { create: [{ order: 1, name: "Steg 1" }] },
     },
     include: { stages: true },
   });
@@ -156,7 +156,7 @@ setPieceVariantsRouter.delete("/:id/ball", async (req, res) => {
   res.status(204).end();
 });
 
-/** Deep-clones a variant: roles, instructions, stage 1 positions. Fast way to
+/** Deep-clones a variant: roles, instructions, stages with positions, arrows and zones. Fast way to
  * spin off e.g. "H2 - Fake first -> far" from "H1 - First". */
 setPieceVariantsRouter.post("/:id/duplicate", async (req, res) => {
   const nameSchema = z.object({ name: z.string().min(1).max(120) });
@@ -167,7 +167,13 @@ setPieceVariantsRouter.post("/:id/duplicate", async (req, res) => {
     where: { id: req.params.id },
     include: {
       roles: { include: { instruction: true, positions: true } },
-      stages: { orderBy: { order: "asc" }, include: { positions: { where: { entityType: "BALL", setPieceRoleId: null } } } },
+      stages: {
+        orderBy: { order: "asc" },
+        include: {
+          positions: { where: { setPieceRoleId: null, entityType: { in: ["BALL", "OPPONENT"] } } },
+          movements: true,
+        },
+      },
       zones: true,
     },
   });
@@ -194,18 +200,20 @@ setPieceVariantsRouter.post("/:id/duplicate", async (req, res) => {
           order: stage.order,
           name: stage.name,
           triggerDescription: stage.triggerDescription,
+          note: stage.note,
           durationMs: stage.durationMs,
         },
       });
       stageIdMap.set(stage.id, newStage.id);
 
-      for (const ballPos of stage.positions) {
+      for (const pos of stage.positions) {
         await tx.setPiecePosition.create({
-          data: { stageId: newStage.id, entityType: "BALL", x: ballPos.x, y: ballPos.y },
+          data: { stageId: newStage.id, entityType: pos.entityType, label: pos.label, x: pos.x, y: pos.y },
         });
       }
     }
 
+    const roleIdMap = new Map<string, string>();
     for (const role of source.roles) {
       const newRole = await tx.setPieceRole.create({
         data: {
@@ -236,7 +244,24 @@ setPieceVariantsRouter.post("/:id/duplicate", async (req, res) => {
           },
         },
       });
-      void newRole;
+      roleIdMap.set(role.id, newRole.id);
+    }
+
+    for (const stage of source.stages) {
+      for (const m of stage.movements) {
+        await tx.setPieceMovement.create({
+          data: {
+            stageId: stageIdMap.get(stage.id)!,
+            setPieceRoleId: m.setPieceRoleId ? (roleIdMap.get(m.setPieceRoleId) ?? null) : null,
+            type: m.type,
+            fromX: m.fromX,
+            fromY: m.fromY,
+            toX: m.toX,
+            toY: m.toY,
+            label: m.label,
+          },
+        });
+      }
     }
 
     for (const zone of source.zones) {
@@ -302,12 +327,22 @@ variantRolesRouter.post<{ variantId: string }>("/", async (req, res) => {
 
 const suggestRolesSchema = z.object({ lineupId: z.string().optional() });
 
+type RoleKind = "aerial" | "duel" | "keep";
+
+/** What a role needs from the player, judged from its (Swedish) name. Takers and "stanna hemma/framme"
+ * roles are never reassigned: they depend on foot and game plan, not on aerial strength. */
+function roleKind(name: string): RoleKind {
+  const n = name.toLowerCase();
+  if (/läggare|taker|stanna|målvakt|mv\b|säkerhet|markering/.test(n)) return "keep";
+  if (/andra boll|andraboll|andra löp|screen|skärm/.test(n)) return "duel";
+  return "aerial";
+}
+
 /**
- * Suggests the best-fit starting-XI player for each SPECIAL role in this
- * variant (e.g. "första stolpen", "screena zon"), based on heading/duel
- * ability and height. Only sets SetPieceRole.assignedPositionId (never
- * touches LineupAssignment), so a coach can still hand-override any single
- * role afterwards via the normal position selector.
+ * Suggests which starting-XI player should fill each role that depends on aerial or duel strength
+ * (runners, near/far post, zones → heading; second ball, screens → duels), using the ratings on the
+ * squad page. Taker and "stanna hemma" roles are left alone. Only sets SetPieceRole.assignedPositionId,
+ * never LineupAssignment, so the coach can still override any single role afterwards.
  */
 variantRolesRouter.post<{ variantId: string }>("/suggest", async (req, res) => {
   const parsed = suggestRolesSchema.safeParse(req.body);
@@ -330,27 +365,46 @@ variantRolesRouter.post<{ variantId: string }>("/suggest", async (req, res) => {
     where: { lineupId },
     include: { player: true },
   });
+  // Roles that keep their player still occupy that position, so nobody can end up in two places.
+  const keptPositions = new Set(
+    variant.roles
+      .filter((r) => roleKind(r.tacticalRole.name) === "keep" && r.assignedPositionId)
+      .map((r) => r.assignedPositionId!)
+  );
+  const players = assignments.filter(
+    (a) => a.player && !a.player.isGoalkeeper && !keptPositions.has(a.positionId)
+  );
 
-  // Higher weight on heading (dominant factor in aerial duels), then general
-  // duel strength, with height as a minor tiebreaker between similar players.
-  const candidates = assignments
-    .filter((a) => a.player && !a.player.isGoalkeeper)
-    .map((a) => ({
-      positionId: a.positionId,
-      score:
-        (a.player!.headingStrength ?? 3) * 3 +
-        (a.player!.duelStrength ?? 3) * 2 +
-        (a.player!.heightCm ?? 175) * 0.05,
-    }))
-    .sort((a, b) => b.score - a.score);
+  const rated = players.filter((a) => a.player!.headingStrength != null || a.player!.duelStrength != null);
+  if (rated.length === 0) {
+    return res.json({
+      updated: 0,
+      lineupId,
+      reason: "NO_RATINGS",
+      message: "Fyll i duellspel och huvudspel (1–5) på spelarna under Trupp först, så kan jag föreslå vem som passar var.",
+    });
+  }
+
+  const score = (a: (typeof players)[number], kind: "aerial" | "duel") => {
+    const p = a.player!;
+    const heading = p.headingStrength ?? 2;
+    const duel = p.duelStrength ?? 2;
+    const height = (p.heightCm ?? 175) * 0.03;
+    return kind === "aerial" ? heading * 3 + duel + height : duel * 3 + heading + height * 0.5;
+  };
 
   const used = new Set<string>();
   const updates: { roleId: string; positionId: string }[] = [];
-  for (const role of variant.roles) {
-    const pick = candidates.find((c) => !used.has(c.positionId));
-    if (!pick) break;
-    used.add(pick.positionId);
-    updates.push({ roleId: role.id, positionId: pick.positionId });
+  // Aerial roles pick first, then duel roles pick from whoever is left.
+  for (const kind of ["aerial", "duel"] as const) {
+    for (const role of variant.roles.filter((r) => roleKind(r.tacticalRole.name) === kind)) {
+      const pick = players
+        .filter((a) => !used.has(a.positionId))
+        .sort((x, y) => score(y, kind) - score(x, kind))[0];
+      if (!pick) break;
+      used.add(pick.positionId);
+      updates.push({ roleId: role.id, positionId: pick.positionId });
+    }
   }
 
   await prisma.$transaction(

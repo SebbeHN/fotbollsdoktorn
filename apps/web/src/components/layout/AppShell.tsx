@@ -4,12 +4,12 @@ import { useAppStore } from "../../state/appStore";
 
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", end: true },
-  { to: "/matcher", label: "Matcher" },
   { to: "/fasta-situationer", label: "Fasta situationer" },
+  { to: "/genomgang", label: "Genomgång på TV" },
   { to: "/trupp", label: "Trupp" },
   { to: "/laguppstallningar", label: "Laguppställningar" },
   { to: "/roller", label: "Roller" },
-  { to: "/presentation", label: "Presentation" },
+  { to: "/matcher", label: "Matcher" },
 ];
 
 export function AppShell() {
@@ -45,7 +45,7 @@ export function AppShell() {
             </NavLink>
           ))}
         </nav>
-        <div className="px-5 py-4 text-xs text-slate-600">Fas 1 - MVP</div>
+        <div className="px-5 py-4 text-xs text-slate-600">Fotbollsdoktorn</div>
       </aside>
       <main className="flex-1 overflow-auto">
         <Outlet />
