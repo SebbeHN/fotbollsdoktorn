@@ -107,8 +107,8 @@ export interface PitchCanvasProps {
 }
 
 export interface PitchCanvasHandle {
-  /** Renders the current stage to a PNG data URL (used for PDF export). */
-  toDataURL: () => string | null;
+  /** Renders the pitch to an image (used for PDF export). */
+  toDataURL: () => { dataUrl: string; width: number; height: number } | null;
 }
 
 export const PitchCanvas = forwardRef<PitchCanvasHandle, PitchCanvasProps>(function PitchCanvas(
@@ -159,7 +159,12 @@ export const PitchCanvas = forwardRef<PitchCanvasHandle, PitchCanvasProps>(funct
   }, [arrowTool, zoneTool]);
 
   useImperativeHandle(ref, () => ({
-    toDataURL: () => stageRef.current?.toDataURL({ pixelRatio: 2 }) ?? null,
+    toDataURL: () => {
+      const stage = stageRef.current;
+      if (!stage) return null;
+      const dataUrl = stage.toDataURL({ pixelRatio: 1.6, mimeType: "image/jpeg", quality: 0.92 });
+      return { dataUrl, width: stage.width(), height: stage.height() };
+    },
   }));
 
   const toScreen: ToScreen = (nx, ny) => {
@@ -192,7 +197,7 @@ export const PitchCanvas = forwardRef<PitchCanvasHandle, PitchCanvasProps>(funct
     toScreen(0.5 + 1 / PITCH_LENGTH_M, 0.5).x - toScreen(0.5, 0.5).x,
     toScreen(0.5 + 1 / PITCH_LENGTH_M, 0.5).y - toScreen(0.5, 0.5).y
   );
-  const markerR = clamp(pxPerMeter * 0.95, 9, 26);
+  const markerR = clamp(pxPerMeter * 0.95, 9, 26 * Math.max(1, ui / 1.2));
   const edit = !readOnly;
   const interactive = edit && tool === "select";
 
@@ -790,6 +795,23 @@ function ZoneShape({
   const right = Math.max(a.x, b.x);
   const bottom = Math.max(a.y, b.y);
 
+  // Numbered zones ("Zon 21") that are too narrow for their name show just the number inside the
+  // zone; every other zone keeps its full name above it, shrunk a little if the zone is narrow.
+  const zoneW = right - left;
+  const fullName = zone.name.toUpperCase();
+  const charW = 0.78;
+  const baseSize = 13 * ui;
+  const fullW = fullName.length * charW * baseSize;
+  const lastWord = fullName.split(/\s+/).pop() ?? fullName;
+  let label = { text: fullName, fontSize: baseSize, width: Math.max(zoneW, fullW), inside: false };
+  if (fullW > zoneW * 0.95) {
+    if (/^\d+$/.test(lastWord) && fullName !== lastWord) {
+      label = { text: lastWord, fontSize: Math.min(baseSize, zoneW / (lastWord.length * charW + 0.6)), width: zoneW, inside: true };
+    } else {
+      label = { text: fullName, fontSize: Math.max(10 * ui, Math.min(baseSize, zoneW / (fullName.length * charW))), width: Math.max(zoneW, fullW * 0.8), inside: false };
+    }
+  }
+
   return (
     <>
       <Group
@@ -831,17 +853,17 @@ function ZoneShape({
           listening={false}
         />
         <Text
-          text={zone.name.toUpperCase()}
-          fontSize={13 * ui}
+          text={label.text}
+          fontSize={label.fontSize}
           fontStyle="bold"
           fill="white"
           stroke="#052e16"
           strokeWidth={3 * ui}
           fillAfterStrokeEnabled
-          width={Math.max(right - left, 140 * ui)}
+          width={label.width}
           align="center"
-          offsetX={(Math.max(right - left, 140 * ui) - (right - left)) / 2}
-          y={-18 * ui}
+          offsetX={(label.width - zoneW) / 2}
+          y={label.inside ? 3 * ui : -(label.fontSize + 5 * ui)}
           listening={false}
         />
       </Group>

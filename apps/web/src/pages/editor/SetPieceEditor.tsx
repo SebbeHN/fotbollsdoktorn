@@ -64,7 +64,7 @@ export function SetPieceEditor() {
   const [exporting, setExporting] = useState(false);
   const [activeStageId, setActiveStageId] = useState<string | null>(null);
   const [showPlayers, setShowPlayers] = useState(true);
-  const canvasRef = useRef<PitchCanvasHandle>(null);
+  const exportRefs = useRef<(PitchCanvasHandle | null)[]>([]);
   const [canvasBoxRef, canvasBox] = useElementSize<HTMLDivElement>();
 
   const createRole = useCreateRole(variantId);
@@ -390,16 +390,19 @@ export function SetPieceEditor() {
     });
   }
 
+  /** Each step is drawn by a hidden, large pitch (see below) and captured into the PDF. */
   function handleExportPdf() {
     if (!variant) return;
     setExporting(true);
-    const previousView = view;
-    setView("full");
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        const dataUrl = canvasRef.current?.toDataURL() ?? null;
-        exportVariantPdf(variant, dataUrl);
-        setView(previousView);
+        const images = stages.flatMap((stage, i) => {
+          const img = exportRefs.current[i]?.toDataURL();
+          return img
+            ? [{ name: stage.name, trigger: stage.triggerDescription, note: stage.note, arrowTypes: [...new Set(stage.movements.map((m) => m.type))], ...img }]
+            : [];
+        });
+        if (images.length) exportVariantPdf(variant, images);
         setExporting(false);
       });
     });
@@ -421,6 +424,26 @@ export function SetPieceEditor() {
 
   return (
     <div className="flex h-full flex-col">
+      {exporting && (
+        <div style={{ position: "fixed", left: -20000, top: 0 }} aria-hidden>
+          {stages.map((stage, i) => (
+            <PitchCanvas
+              key={stage.id}
+              ref={(el) => {
+                exportRefs.current[i] = el;
+              }}
+              roles={variant.roles}
+              positions={effectivePositions(stages, i)}
+              movements={stage.movements}
+              zones={variant.zones}
+              view={effectiveView}
+              maxWidth={1700}
+              maxHeight={1100}
+              readOnly
+            />
+          ))}
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-surface-border px-4 py-2">
         <div className="flex min-w-0 items-center gap-3">
           <Link to="/fasta-situationer" className="text-xs text-slate-500 hover:text-accent">
@@ -613,7 +636,6 @@ export function SetPieceEditor() {
         <div ref={canvasBoxRef} className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden p-2">
           {canvasBox.width > 0 && (
             <PitchCanvas
-              ref={canvasRef}
               roles={variant.roles}
               positions={positions}
               movements={activeStage?.movements ?? []}
